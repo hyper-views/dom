@@ -133,6 +133,10 @@ let toNodesAndRefs = (svg, list) => {
 export let h = (tag, attributes, ...children) => {
   if (tag === fragment_symbol) return children;
 
+  if (typeof tag === "function") {
+    return tag({ ...attributes, children });
+  }
+
   return { tag, attributes, children };
 };
 
