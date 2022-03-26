@@ -71,9 +71,10 @@ let buildElement = (element, attributes, svg, ...children) => {
 
       if (!isRef) return toNodes(svg, toArray(value));
 
-      let [nodes, refs] = toNodesAndRefs(
+      let [nodes, refs] = toNodes(
         svg,
-        toArray(value[ref_symbol].initial)
+        toArray(value[ref_symbol].initial),
+        true
       );
 
       addHook(value[ref_symbol].paths, {
@@ -106,28 +107,20 @@ let toNode = (svg, node) => {
   return buildElement(element, attributes, svg, ...children);
 };
 
-let toNodes = (svg, list) => {
-  let nodes = [];
+let toNodes = (svg, list, andRefs = false) => {
+  let result = [[], []];
 
-  for (let i = 0; i < list.length; i++) {
-    nodes.push(toNode(svg, list[i]));
-  }
-
-  return nodes;
-};
-
-let toNodesAndRefs = (svg, list) => {
-  let nodes = [];
-  let refs = [];
+  list = list.flat(Infinity);
 
   for (let i = 0; i < list.length; i++) {
     let node = toNode(svg, list[i]);
 
-    nodes.push(node);
-    refs.push(new WeakRef(node));
+    result[0].push(node);
+
+    if (andRefs) result[1].push(new WeakRef(node));
   }
 
-  return [nodes, refs];
+  return andRefs ? result : result[0];
 };
 
 export let h = (tag, attributes, ...children) => {
@@ -205,10 +198,7 @@ let runChanges = () => {
         }
 
         if (type === 2) {
-          let [nodes, additions] = toNodesAndRefs(
-              svg,
-              toArray(callback(value))
-            ),
+          let [nodes, additions] = toNodes(svg, toArray(callback(value)), true),
             node;
 
           item[i].refs = additions;
