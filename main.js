@@ -34,7 +34,7 @@ let setAttr = (element, key, value) => {
   }
 };
 
-let buildElement = (element, attributes, svg, ...children) => {
+let buildElement = (element, attributes, svg, children) => {
   if (attributes != null) {
     attributes = Object.entries(attributes);
 
@@ -69,13 +69,9 @@ let buildElement = (element, attributes, svg, ...children) => {
     ...children.flatMap((value) => {
       let isRef = value[ref_symbol] != null;
 
-      if (!isRef) return toNodes(svg, toArray(value));
+      if (!isRef) return toNodes(svg, value).nodes;
 
-      let [nodes, refs] = toNodes(
-        svg,
-        toArray(value[ref_symbol].initial),
-        true
-      );
+      let { nodes, refs } = toNodes(svg, value[ref_symbol].initial, true);
 
       addHook(value[ref_symbol].paths, {
         type: 2,
@@ -104,23 +100,25 @@ let toNode = (svg, node) => {
     ? document.createElement(tag)
     : document.createElementNS("http://www.w3.org/2000/svg", tag);
 
-  return buildElement(element, attributes, svg, ...children);
+  return buildElement(element, attributes, svg, children);
 };
 
 let toNodes = (svg, list, andRefs = false) => {
-  let result = [[], []];
+  let result = { nodes: [] };
 
-  list = list.flat(Infinity);
+  if (andRefs) result.refs = [];
+
+  list = toArray(list).flat(Infinity);
 
   for (let i = 0; i < list.length; i++) {
     let node = toNode(svg, list[i]);
 
-    result[0].push(node);
+    result.nodes.push(node);
 
-    if (andRefs) result[1].push(new WeakRef(node));
+    if (andRefs) result.refs.push(new WeakRef(node));
   }
 
-  return andRefs ? result : result[0];
+  return result;
 };
 
 export let h = (tag, attributes, ...children) => {
@@ -148,7 +146,7 @@ export let render = (args, element) => {
     element,
     attributes,
     element.nodeName === "svg",
-    ...children
+    children
   );
 };
 
@@ -198,7 +196,7 @@ let runChanges = () => {
         }
 
         if (type === 2) {
-          let [nodes, additions] = toNodes(svg, toArray(callback(value)), true),
+          let { nodes, refs: additions } = toNodes(svg, callback(value), true),
             node;
 
           item[i].refs = additions;
