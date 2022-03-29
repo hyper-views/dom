@@ -1,6 +1,6 @@
 {
   "name": "@hyper-views/dom",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "declarative, reactive ui",
   "type": "module",
   "main": "main.js",
