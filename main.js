@@ -3,9 +3,8 @@ let changesScheduled = false;
 let fragmentSymbol = Symbol("fragment");
 let hookMap = new WeakMap();
 let paths = [];
-let pathPrefixes = [];
 let proxySymbol = Symbol("proxy");
-let recordPaths = false;
+let recordPaths = 0;
 let refSymbol = Symbol("ref");
 
 let addHook = (paths, payload) => {
@@ -20,6 +19,7 @@ let addHook = (paths, payload) => {
     }
 
     map[property] = map[property] ?? [];
+
     map[property].push(payload);
   }
 };
@@ -55,24 +55,26 @@ let buildElement = (element, attributes, svg, children) => {
     }
   }
 
-  element.append(
-    ...children.flatMap((value) => {
-      let isRef = value[refSymbol] != null;
+  if (children) {
+    element.append(
+      ...children.flatMap((value) => {
+        let isRef = value[refSymbol] != null;
 
-      if (!isRef) return toNodes(svg, value).nodes;
+        if (!isRef) return toNodes(svg, value).nodes;
 
-      let { nodes, refs } = toNodes(svg, value[refSymbol].initial, true);
+        let { nodes, refs } = toNodes(svg, value[refSymbol].initial, true);
 
-      addHook(value[refSymbol].paths, {
-        type: 2,
-        refs,
-        svg,
-        callback: value[refSymbol].callback,
-      });
+        addHook(value[refSymbol].paths, {
+          type: 2,
+          refs,
+          svg,
+          callback: value[refSymbol].callback,
+        });
 
-      return nodes;
-    })
-  );
+        return nodes;
+      })
+    );
+  }
 
   return element;
 };
@@ -145,9 +147,16 @@ let toArray = (value) => {
   return [value];
 };
 
-let toNode = (svg, node) => {
-  if (typeof node !== "object") {
-    return document.createTextNode(node);
+let toNode = (svg, n) => {
+  if (typeof n !== "object") {
+    return document.createTextNode(n);
+  }
+
+  let isRef = n[refSymbol] != null;
+  let node = n;
+
+  if (isRef) {
+    node = n[refSymbol].initial;
   }
 
   let { tag, attributes, children } = node;
@@ -157,6 +166,15 @@ let toNode = (svg, node) => {
   let element = !svg
     ? document.createElement(tag)
     : document.createElementNS("http://www.w3.org/2000/svg", tag);
+
+  if (isRef) {
+    addHook(n[refSymbol].paths, {
+      type: 2,
+      refs: [new WeakRef(element)],
+      svg,
+      callback: n[refSymbol].callback,
+    });
+  }
 
   return buildElement(element, attributes, svg, children);
 };
@@ -180,37 +198,25 @@ let toNodes = (svg, list, andRefs = false) => {
 };
 
 export let compute = (callback) => {
-  recordPaths = true;
+  let initialLength = paths.length;
 
-  if (pathPrefixes.length) paths.push(pathPrefixes[0]);
+  recordPaths++;
 
   let initial = callback();
 
-  recordPaths = false;
+  recordPaths--;
+
+  let resultPaths = paths.slice(0);
+
+  paths.splice(initialLength, Infinity);
 
   return {
     [refSymbol]: {
       initial,
       callback,
-      paths: paths.splice(0, paths.length),
+      paths: resultPaths,
     },
   };
-};
-
-export let each = (list, callback) => {
-  let result = [];
-
-  pathPrefixes.unshift([list, null]);
-
-  for (let i = 0; i < list.length; i++) {
-    pathPrefixes[0][1] = i;
-
-    result.push(callback(list[i], i));
-  }
-
-  pathPrefixes.shift();
-
-  return result;
 };
 
 export { fragmentSymbol as fragment };
@@ -232,8 +238,30 @@ export let proxy = (state) => {
     get(object, property, self) {
       let value = Reflect.get(object, property, self);
 
-      if (recordPaths) {
-        paths.push([self, property]);
+      if (recordPaths > 0) {
+        if (Object.hasOwn(object, property)) {
+          paths.push([self, property]);
+        }
+      }
+
+      if (property === "map") {
+        return new Proxy(object[property], {
+          apply(target, thisArg, [callback]) {
+            return target.apply(thisArg, [
+              (val, i, arr) => {
+                return compute(() => {
+                  paths.push([self, i]);
+
+                  const r = callback(arr[i], i, arr);
+
+                  paths.pop();
+
+                  return r;
+                });
+              },
+            ]);
+          },
+        });
       }
 
       if (value != null && typeof value === "object" && !value[proxySymbol]) {
